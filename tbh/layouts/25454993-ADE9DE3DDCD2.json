@@ -1,0 +1,321 @@
+{
+  "build_id": "25454993",
+  "game_assembly_sha256": "ADE9DE3DDCD244105F21D15D5F9DB1C3AF439098C9F6C2CA1CB0A8B1F6E810E1",
+  "metadata_sha256": "0653CEFF8FCBEC8410A863A85DDCD4FB20ADDD1324EF6193914E79E17899CF7B",
+  "dump_sha256": "EFAD3F42CA31807462685126119DE2535C07D766AAC93BC4E90BBA8FF144C7DC",
+  "generated_utc": "2026-10-01T17:40:22.971799+00:00",
+  "fields": {
+    "wh.wb": {
+      "bgpr": 80,
+      "bgps": 96,
+      "bgpt": 112,
+      "bgpw": 128,
+      "bgpx": 144,
+      "bgqa": 168
+    },
+    "wh.StageCache": {
+      "bgqe": 16
+    },
+    "StageInfoData": {
+      "StageKey": 48
+    },
+    "StageManager": {
+      "HeroList": 48,
+      "stageState": 136
+    },
+    "ob<a>": {
+      "bdwn": 0
+    },
+    "Hero": {
+      "cache": 976
+    },
+    "wj": {
+      "bgtc": 48,
+      "bgtv": 204,
+      "bgtw": 220,
+      "bgtx": 236,
+      "bgty": 252,
+      "bgtz": 272
+    },
+    "HeroInfoData": {
+      "HeroKey": 48
+    },
+    "wh.ul": {
+      "bghx": 0
+    },
+    "wh.um": {
+      "bghz": 16,
+      "bgic": 40
+    },
+    "CurrencyInfoData": {
+      "CurrencyKey": 48
+    },
+    "ObscuredInt": {
+      "currentCryptoKey": 8,
+      "hiddenValue": 4
+    },
+    "ObscuredLong": {
+      "currentCryptoKey": 16,
+      "hiddenValue": 8
+    },
+    "ObscuredDouble": {
+      "currentCryptoKey": 16,
+      "hiddenValue": 8
+    }
+  },
+  "typeinfo_rva": {
+    "wh.wb": 100043680,
+    "ob<StageManager>": 100512920,
+    "wh.ul": 100040208
+  },
+  "il2cpp": {
+    "class_name": 16,
+    "class_static_fields": 184,
+    "array_length": 24,
+    "array_data": 32,
+    "list_items": 16,
+    "list_size": 24
+  },
+  "semantics": {
+    "wh.wb.bgpr": "max completed stage (matches save maxCompletedStage)",
+    "wh.wb.bgps": "last cleared stage (matches save lastClearedStageKey)",
+    "wh.wb.bgpw": "current stage key",
+    "wh.wb.bgpx": "current wave (0..WaveAmount+1)",
+    "wh.wb.bgqa": "current StageCache",
+    "wj.bgtz": "hero XP within level (matched saved HeroExp)",
+    "wj.bgtv": "hero level candidate",
+    "wh.um.bgic": "currency quantity (ObscuredLong)"
+  },
+  "combat": {
+    "fields": {
+      "StageManager": {
+        "beza": 88,
+        "bezp": 280
+      },
+      "DeadUnitData": {
+        "currentResurrectionTime": 24
+      },
+      "Unit": {
+        "UnitHealthController": 176,
+        "BuffManager": 200,
+        "state": 876,
+        "b_attacking": 885,
+        "beib": 904,
+        "behj": 688,
+        "behl": 704,
+        "beht": 832
+      },
+      "ActiveSkill": {
+        "skillCache": 24,
+        "skillCastDistance": 32
+      },
+      "wo": {
+        "bgus": 16
+      },
+      "SkillInfoData": {
+        "SkillKey": 48
+      },
+      "Hero": {
+        "cache": 976
+      },
+      "Monster": {
+        "befl": 992
+      },
+      "pp": {
+        "beih": 48,
+        "beik": 64,
+        "bein": 76
+      },
+      "wq": {
+        "<bgvo>k__BackingField": 16
+      },
+      "bbb": {
+        "bhmt": 16,
+        "bhmu": 24,
+        "bhmv": 32
+      },
+      "wv": {
+        "bgwc": 16,
+        "bgwd": 24
+      },
+      "wu": {
+        "<bgvw>k__BackingField": 16,
+        "<bgvx>k__BackingField": 20,
+        "<bgvy>k__BackingField": 24,
+        "<bgvz>k__BackingField": 28
+      },
+      "wh.vk": {
+        "bgmb": 16
+      },
+      "MonsterInfoData": {
+        "MonsterKey": 48
+      },
+      "baj": {
+        "bhlu": 32,
+        "bhlx": 56
+      },
+      "bah": {
+        "bhlk": 32,
+        "bhll": 40,
+        "bhlm": 48,
+        "bhln": 56,
+        "bhlo": 64
+      },
+      "bai": {
+        "bhls": 16,
+        "bhlt": 24
+      },
+      "bag": {
+        "bhlh": 32
+      },
+      "wh.StageCache": {
+        "bgqm": 136
+      },
+      "td": {
+        "bfmi": 196,
+        "bfmj": 200,
+        "bfmk": 204,
+        "bfml": 208,
+        "bfmm": 212,
+        "bfmq": 228,
+        "bfmr": 232,
+        "bfms": 236,
+        "bfmt": 240
+      }
+    },
+    "enums": {
+      "StatType": {
+        "0": "NONE",
+        "1": "AttackDamage",
+        "2": "AttackSpeed",
+        "3": "CriticalChance",
+        "4": "CriticalDamage",
+        "5": "MaxHp",
+        "6": "Armor",
+        "7": "MovementSpeed",
+        "8": "AreaOfEffect",
+        "9": "BaseAttackCountReduction",
+        "10": "CooldownReduction",
+        "11": "SkillRangeExpansion",
+        "12": "FireResistance",
+        "13": "ColdResistance",
+        "14": "LightningResistance",
+        "15": "ChaosResistance",
+        "16": "DodgeChance",
+        "17": "BlockChance",
+        "18": "MaxDodgeChance",
+        "19": "MaxBlockChance",
+        "20": "Multistrike",
+        "21": "HpLeech",
+        "22": "ProjectileCount",
+        "23": "HpRegenPerSec",
+        "24": "PhysicalDamagePercent",
+        "25": "FireDamagePercent",
+        "26": "ColdDamagePercent",
+        "27": "LightningDamagePercent",
+        "28": "ChaosDamagePercent",
+        "29": "MaxFireResistance",
+        "30": "MaxColdResistance",
+        "31": "MaxLightningResistance",
+        "32": "MaxChaosResistance",
+        "33": "AddHpPerHit",
+        "34": "DamageReduction",
+        "35": "PhysicalDamageReduction",
+        "36": "FireDamageReduction",
+        "37": "ColdDamageReduction",
+        "38": "LightningDamageReduction",
+        "39": "ChaosDamageReduction",
+        "40": "DamageAbsorption",
+        "41": "DamageAddition",
+        "42": "PhysicalDamageAddition",
+        "43": "FireDamageAddition",
+        "44": "ColdDamageAddition",
+        "45": "LightningDamageAddition",
+        "46": "ChaosDamageAddition",
+        "47": "IncreaseExpAmount",
+        "48": "AdditionalExp",
+        "49": "CastSpeed",
+        "50": "SkillHealIncrease",
+        "51": "SkillDurationIncrease",
+        "52": "AllElementalResistance",
+        "53": "IncreaseProjectileDamage",
+        "54": "IncreaseMeleeDamage",
+        "55": "IncreaseAreaOfEffectDamage",
+        "56": "IncreaseSummonDamage",
+        "57": "IncreaseProjectileSpeed",
+        "58": "AddHpPerKill",
+        "59": "AddAllSkillLevel",
+        "60": "ElementalBlockChance",
+        "61": "ElementalDodgeChance",
+        "62": "MaxElementalBlockChance",
+        "63": "MaxElementalDodgeChance",
+        "64": "MaxAllElementalResistance"
+      },
+      "MODTYPE": {
+        "0": "FLAT",
+        "1": "ADDITIVE",
+        "2": "MULTIPLICATIVE"
+      },
+      "MODSOURCE": {
+        "0": "BASE",
+        "1": "ITEM",
+        "2": "ATTRIBUTE",
+        "3": "PASSIVE",
+        "4": "AccountStatus",
+        "5": "StatusEffect",
+        "6": "BuffSkill",
+        "7": "ENVIROUNMENT"
+      },
+      "EDamageAttribute": {
+        "0": "Physical",
+        "1": "Fire",
+        "2": "Cold",
+        "3": "Lightning",
+        "4": "Chaos",
+        "5": "AllElement",
+        "6": "None"
+      },
+      "DamageableType": {
+        "1": "Hero",
+        "2": "Monster",
+        "6": "Structure"
+      },
+      "EUNITSTATE": {
+        "0": "NONE",
+        "1": "IDLE",
+        "2": "MOVE",
+        "3": "RETURN_TO_POSITION",
+        "4": "ATTACK",
+        "5": "REVIVE",
+        "6": "DIE"
+      }
+    },
+    "td_typeinfo_rva": 100388656,
+    "buff_classes": [
+      "bak",
+      "bal",
+      "bam",
+      "ban",
+      "bao",
+      "bap",
+      "baq",
+      "bas",
+      "bat",
+      "bau",
+      "bav",
+      "baw",
+      "bax",
+      "bay"
+    ]
+  },
+  "actk": {
+    "int": "sub-xor",
+    "long": "sub-xor",
+    "double": "permute[1,0,2,3,7,4,6,5]+xor",
+    "decoder_rva": {
+      "double": "0x759FC0",
+      "int": "0x72CF30",
+      "long": "0x725D30"
+    }
+  }
+}
