@@ -2,6 +2,7 @@
 import unittest
 
 from tbh.analysis.stagestats import best_stage, confidence, ratio_rate, runs_needed, stage_evidence
+from tbh.views.analytics import BuildTimeline, party_build
 from tbh.views.items import rune_effect
 from tbh.views.suggestions import (gear_suggestions, purchase_suggestions, rune_suggestions, stage_suggestions,
                                    synthesis_suggestion)
@@ -124,6 +125,31 @@ class StageTests(unittest.TestCase):
         for e in far:
             e['changes_since'], e['changes_since_kinds'] = (3, ['gear']) if e['stage'] == 1 else (0, [])
         self.assertNotIn('stage-remeasure-1', {s['id'] for s in stage_suggestions(far, 2, [])})
+
+    def test_history_fills_in_until_the_current_build_is_confirmed(self):
+        old = evidence(steady(1, 6, 90, 2500) + steady(2, 6, 90, 3000))
+        for e in old:
+            e.update(current_build_comparable=False, changes_since=2, changes_since_kinds=['rune'])
+        now = evidence([run(1, 90, 2600)])
+        rows = {s['id']: s for s in stage_suggestions(now, 1, [], history=old)}
+        self.assertNotIn('stage-gold-none', rows)
+        card = rows['stage-gold-history']
+        self.assertEqual(card['metrics']['stage'], 2)
+        self.assertTrue(card['metrics']['historical'])
+        self.assertEqual(card['confidence'], 'low')
+        self.assertIn('before 2 later power change(s) (rune)', card['detail'])
+        self.assertIn('the current build has 1 so far, on S1', card['detail'])
+        # Without history there is still nothing to show.
+        self.assertIn('stage-gold-none', {s['id'] for s in stage_suggestions(now, 1, [], history=[])})
+
+    def test_confirmed_current_build_wins_over_history(self):
+        old = evidence(steady(2, 6, 90, 9000))
+        for e in old:
+            e.update(current_build_comparable=False, changes_since=1, changes_since_kinds=['gear'])
+        rows = {s['id']: s for s in stage_suggestions(evidence(steady(1, 6, 90, 2500)), 1, [], history=old)}
+        self.assertEqual(rows['stage-gold']['metrics']['stage'], 1)
+        self.assertNotIn('stage-gold-history', rows)
+        self.assertIn('stage-remeasure-2', rows)
 
     def test_promising_stage_reports_runs_needed(self):
         ev = evidence(steady(1, 6, 90, 2500) + [run(2, 540, 60_000)])
@@ -353,6 +379,46 @@ class SynthesisRulesTests(unittest.TestCase):
         self.assertIn('Cube level 10', synthesis_gate('IMMORTAL', 9))
         self.assertIsNone(synthesis_gate('IMMORTAL', 25))
         self.assertIn('cannot be synthesized', synthesis_gate('COSMIC', 99))
+
+
+class AttributeCatalog:
+    def index(self, table, key):
+        return {'201001': {'HeroKey': '201'}, '601001': {'HeroKey': '601'}}
+
+
+def save(t, runes=1, skill=50101, attrs=None, party=(201, 401, 501)):
+    power = {('rune', 113): runes, ('pet',): 7, ('skill', 501, 1): skill}
+    power.update({('attribute', k): v for k, v in (attrs or {}).items()})
+    return {'last_saved_utc': f'2026-10-05T09:{t:02d}:00+00:00', 'power': power, 'party': list(party)}
+
+
+def timed(start, end):
+    return {'party': '201,401,501', 'started_utc': f'2026-10-05T09:{start:02d}:10+00:00',
+            'ended_utc': f'2026-10-05T09:{end:02d}:10+00:00'}
+
+
+class BuildTests(unittest.TestCase):
+    def test_attribute_points_of_heroes_outside_the_party_are_ignored(self):
+        state = {('rune', 1): 2, ('attribute', 201001): 3, ('attribute', 601001): 5, ('skill', 601, 0): 1}
+        self.assertEqual(party_build(state, {'201', '401', '501'}, {'201001': '201', '601001': '601'}),
+                         {('rune', 1): 2, ('attribute', 201001): 3})
+        self.assertIsNone(party_build(None, {'201'}, {}))
+
+    def test_an_undone_change_keeps_earlier_runs_in_the_current_build(self):
+        saves = [save(0), save(4), save(5, skill=None), save(10), save(15, attrs={601001: 5}), save(20)]
+        timeline = BuildTimeline(saves, AttributeCatalog())
+        build = timeline.current('201,401,501')
+        self.assertTrue(timeline.matches(timed(1, 3), build))       # before the skill was taken off and put back
+        self.assertFalse(timeline.matches(timed(6, 8), build))      # while it was off
+        self.assertFalse(timeline.matches(timed(3, 7), build))      # spans the change
+        self.assertTrue(timeline.matches(timed(16, 18), build))     # points on a hero outside the party
+
+    def test_a_permanent_change_starts_a_new_build(self):
+        timeline = BuildTimeline([save(0), save(5, runes=2)], AttributeCatalog())
+        build = timeline.current('201,401,501')
+        self.assertFalse(timeline.matches(timed(1, 3), build))      # the change may have happened during it
+        self.assertTrue(timeline.matches(timed(6, 8), build))
+        self.assertFalse(timeline.matches(timed(1, 3), None))
 
 
 if __name__ == '__main__':

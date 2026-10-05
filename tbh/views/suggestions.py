@@ -122,7 +122,22 @@ def _threat_text(threat, reference):
     return text + (' (above the confirmed armor range)' if any(h['cap_uncertain'] for h in rows) else '') + '.'
 
 
-def stage_suggestions(evidence, current_stage, candidates, reference=None):
+def _measured_with(e):
+    """Why a historical rate is not a current-build rate."""
+    parts = []
+    if e.get('changes_since'):
+        parts.append(f"before {e['changes_since']} later power change(s) ({', '.join(e.get('changes_since_kinds') or [])})")
+    if e.get('changes_during'):
+        parts.append('while the loadout changed')
+    if e.get('mixed_levels'):
+        parts.append('across several hero levels')
+    return ', '.join(parts) or 'with earlier hero levels'
+
+
+def stage_suggestions(evidence, current_stage, candidates, reference=None, history=None):
+    """`evidence`: current-build stage rates; `history`: the same party's rates over all its runs
+    (defaults to `evidence`), used when the current build has no confirmed stage yet."""
+    history = evidence if history is None else history
     out = []
     current = next((e for e in evidence if e['stage'] == current_stage), None)
     for metric, what, unit in (('gold_h', 'gold', 'gold/h'), ('xp_h', 'XP', 'XP/h per hero')):
@@ -145,7 +160,7 @@ def stage_suggestions(evidence, current_stage, candidates, reference=None):
                 detail += f" {best['fails']} failed run(s) observed."
             detail += _risk_text(best)
             # Stages measured before later power changes (gear, runes, points) look worse than they are today.
-            stale = [e for e in evidence if e is not best and e.get(metric) and e.get('runs')
+            stale = [e for e in history if e['stage'] != best['stage'] and e.get(metric) and e.get('runs')
                      and e.get('changes_since') and e[metric] >= STALE_WITHIN * best[metric]]
             for e in stale:
                 detail += (f" {e['label']} ({e[metric]:,.0f}) was last measured before {e['changes_since']} power "
@@ -166,6 +181,22 @@ def stage_suggestions(evidence, current_stage, candidates, reference=None):
                         'metrics': {'stage': best['stage'], metric: best[metric], 'runs': best['runs'],
                                     'rse': best[field(metric, 'rse')], 'gain_pct_vs_current': gain,
                                     'significant': sig}})
+        elif (old := best_stage(history, metric, comparable=False)[0]) is not None:
+            # Earlier runs with another build: the best known stage, not a confirmed rate for today.
+            runs_now = current[('xp_runs' if metric == 'xp_h' else 'runs')] if current else 0
+            detail = (f"{old['label']}: {old[metric]:,.0f} {unit} ({_evidence_text(old, metric)}), measured "
+                      f"{_measured_with(old)}, so today's rate may differ.")
+            if old['stage'] == current_stage:
+                detail += ' You are already farming it.'
+            detail += (f" Confirming it for the current build needs {CONFIRM_RUNS}+ complete runs with relative "
+                       f"standard error ≤{CONFIRM_RSE:.0%} at today's loadout"
+                       + (f" (the current build has {runs_now} so far, on {current['label']})." if current else '.'))
+            detail += _risk_text(old)
+            out.append({'id': f'stage-{key}-history', 'area': 'stages', 'title': f'Best stage for {what} so far: {old["label"]}',
+                        'detail': detail, 'basis': 'observed', 'confidence': 'low', 'priority': 2,
+                        'metrics': {'stage': old['stage'], metric: old[metric], 'runs': old['runs'],
+                                    'rse': old[field(metric, 'rse')], 'historical': True,
+                                    'changes_since': old.get('changes_since')}})
         else:
             out.append({'id': f'stage-{key}-none', 'area': 'stages', 'title': f'No confirmed {what} stage yet',
                         'detail': (f'Needs {CONFIRM_RUNS}+ complete runs with relative standard error ≤{CONFIRM_RSE:.0%}, '
@@ -708,22 +739,29 @@ def suggestions(app, hours=168, locale='en-US'):
     snapshot = app.save()
     reading = app.collector.last_combat if app.collector else None
     stages = analytics.stage_comparison(app.store, catalog, hours, locale, reading=reading)
-    evidence = [e for e in stages['current_evidence'] if e['party'] == party_key(snapshot['party'])]
+    party = party_key(snapshot['party'])
+    evidence = [e for e in stages['current_evidence'] if e['party'] == party]
+    history = [e for e in stages['evidence'] if e['party'] == party]
     now = live(app, locale)
     current_stage = (now['runtime'] or {}).get('stage_key') or snapshot['current_stage']
-    best_gold, _, _ = best_stage(evidence, 'gold_h')
-    best_xp, _, _ = best_stage(evidence, 'xp_h')
+
+    def reference_stage(metric):
+        """Confirmed best with the current build, else the best measured with earlier builds."""
+        best = best_stage(evidence, metric)[0]
+        return (best, False) if best else (best_stage(history, metric, comparable=False)[0], True)
+    (best_gold, gold_old), (best_xp, xp_old) = reference_stage('gold_h'), reference_stage('xp_h')
     ref = {'gold_h': best_gold['gold_h'] if best_gold else None, 'xp_h': best_xp['xp_h'] if best_xp else None,
            'clears_per_h': best_gold['clears_per_h'] if best_gold else None,
            'kills_per_h': best_gold['kills_per_h'] if best_gold else None,
-           'stage_label': best_gold['label'] if best_gold else None}
+           'stage_label': best_gold['label'] if best_gold else None,
+           'historical': {'gold_h': bool(best_gold) and gold_old, 'xp_h': bool(best_xp) and xp_old}}
     totals = items.rune_totals(snapshot, catalog, locale)
     containers = items.containers(snapshot, catalog, locale)
     hero_rows = hero_list(app, locale)
     effects = PowerContext(app, snapshot, locale)
     effects = effects if effects.available else None
     rows = (stage_suggestions(evidence, current_stage, stages['recommendation']['untested_candidates'],
-                              stages['recommendation']['survival_reference'])
+                              stages['recommendation']['survival_reference'], history)
             + rune_suggestions(items.rune_tree(snapshot, catalog, locale), totals, snapshot['gold'], ref, effects)
             + purchase_suggestions(purchases(app.store, catalog, hours, locale)['purchases'])
             + gear_suggestions(items.equipment(snapshot, catalog, locale), containers,
@@ -742,8 +780,11 @@ def suggestions(app, hours=168, locale='en-US'):
         'current_stage_label': catalog.stage_label(current_stage, locale) if current_stage else None,
         'stages': sorted(evidence, key=lambda e: -(e.get('gold_h') or 0)),
         'suggestions': sorted(rows, key=lambda s: s['priority']),
-        'note': ('Stage rates are sum of gold or XP / sum of time over complete runs with the current party. '
-                 + describe() + ' '
+        'note': ('Stage rates are sum of gold or XP / sum of time over complete runs with the current party, '
+                 'loadout and hero levels (within 1 level); a change that was undone does not count. '
+                 'Without a confirmed stage for this build, the best stage measured with earlier builds is shown '
+                 'with low confidence. ' + describe() + ' '
                  'Rune estimates use the game text for each stat ("% increased", "+N per boss kill") and assume '
-                 'percent bonuses stack additively; the reference rates are the confirmed best stage.'),
+                 'percent bonuses stack additively; the reference rates are the confirmed best stage, or the '
+                 'best earlier one when none is confirmed yet (see reference.historical).'),
     }

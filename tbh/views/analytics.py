@@ -1,6 +1,7 @@
 """DB-backed analytics: runs, stage comparison, rates and history."""
 import json
 import statistics
+from bisect import bisect_left, bisect_right
 from datetime import datetime, timedelta, timezone
 
 from ..analysis.economy import stage_rates, theoretical_stage_table, windows
@@ -15,6 +16,7 @@ from ..snapshots import snapshots_since
 
 DUPLICATE_SECONDS = 5       # two sessions starting the same stage this close recorded one run twice
 EXTRAPOLATION_LIMIT = 2.0   # max monster damage multiplier vs the hardest played stage for an estimate
+LEVEL_TOLERANCE = 1         # a run belongs to the current build when every hero was within this many levels of today
 STATE_NAMES = {0: 'NONE', 1: 'MONSTERSPAWN', 2: 'BATTLE', 3: 'REORGANIZATION'}
 def since_iso(hours):
     return (datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat() if hours else '0'
@@ -245,6 +247,47 @@ def survival_reference(evidence):
     return {'deaths_from': min(died) if died else None, 'no_deaths_up_to': max(clean) if clean else None}
 
 
+def party_build(state, party, attribute_hero):
+    """The part of a power state that acts on `party` (hero keys as strings): runes and pet, plus the
+    gear, skills and attribute points of its heroes. None when the state is unknown."""
+    if state is None:
+        return None
+    hero = lambda k: attribute_hero.get(str(k[1])) if k[0] == 'attribute' else str(k[1])
+    return {k: v for k, v in state.items() if k[0] in ('rune', 'pet') or hero(k) in party}
+
+
+class BuildTimeline:
+    """Party builds over the saves, to tell whether a run was played with a given build. A change and its
+    reversal (a hero leaving and rejoining, a skill unequipped and equipped again) is no change."""
+
+    def __init__(self, snapshots, catalog):
+        self.snapshots = snapshots
+        self.times = [s['last_saved_utc'] for s in snapshots]
+        self.attribute_hero = {k: r['HeroKey'] for k, r in catalog.index('AttributeInfoData', 'AttributeKey').items()}
+        self._builds = {}
+
+    def builds(self, party):
+        party = party_key(party)
+        if party not in self._builds:
+            heroes = set(party.split(',')) - {''}
+            self._builds[party] = [party_build(s.get('power'), heroes, self.attribute_hero) for s in self.snapshots]
+        return self._builds[party]
+
+    def current(self, party):
+        builds = self.builds(party)
+        return builds[-1] if builds else None
+
+    def during(self, run, party=None):
+        """Builds of the saves around a run: the last one at or before its start up to the first at or after its end."""
+        builds = self.builds(party if party is not None else run['party'])
+        first = bisect_right(self.times, run['started_utc']) - 1
+        last = min(bisect_left(self.times, run['ended_utc']), len(builds) - 1)
+        return builds[first:last + 1] if first >= 0 else [None]
+
+    def matches(self, run, build, party=None):
+        return build is not None and all(b == build for b in self.during(run, party))
+
+
 def stage_comparison(store, catalog, hours=72, locale='en-US', reading=None):
     snapshots = recent_snapshots(store, hours)
     window_list = windows(snapshots, catalog.level_thresholds)
@@ -263,14 +306,24 @@ def stage_comparison(store, catalog, hours=72, locale='en-US', reading=None):
         row['confidence'] = match['gold_confidence'] if match else 'insufficient'
         row['runs'] = match['runs'] if match else 0
     changes = power_changes(snapshots)
+    timeline = BuildTimeline(snapshots, catalog)
     for e in evidence:
         e['party_names'] = [catalog.hero_name(k, locale) for k in e['party'].split(',')] if e['party'] else []
+        matching = [r for r in runs if r['stage_key'] == e['stage'] and party_key(r['party']) == e['party']]
         # A rate measured before later power changes (gear, runes, points) understates the stage today.
+        # Only the net difference to the build of its last run counts: changes undone since then are none.
         later = [c for c in changes if e['last_run_utc'] and
                  datetime.fromisoformat(c['to_utc']) > datetime.fromisoformat(e['last_run_utc'])]
+        last = max(matching, key=lambda r: r['ended_utc'], default=None)
+        now_build, then = timeline.current(e['party']), timeline.during(last, e['party'])[-1] if last else None
+        if now_build is not None and then is not None:
+            default = lambda k: 0 if k[0] in ('rune', 'attribute') else None
+            moved = {k for k in set(now_build) | set(then) if now_build.get(k, default(k)) != then.get(k, default(k))}
+            later = [c for c in later if moved & set(c['changes'])]
+            e['changes_since_kinds'] = sorted({k[0] for k in moved})
+        else:
+            e['changes_since_kinds'] = sorted({k[0] for c in later for k in c['changes']})
         e['changes_since'] = len(later) if e['last_run_utc'] else None
-        e['changes_since_kinds'] = sorted({k[0] for c in later for k in c['changes']})
-        matching = [r for r in runs if r['stage_key'] == e['stage'] and party_key(r['party']) == e['party']]
         first = min((r['started_utc'] for r in matching), default=None)
         e['changes_during'] = sum(first is not None and c['to_utc'] >= first
                                   and c['from_utc'] <= e['last_run_utc'] for c in changes)
@@ -348,13 +401,19 @@ def stage_comparison(store, catalog, hours=72, locale='en-US', reading=None):
     else:
         candidates.sort(key=lambda t: -t['gold_per_clear'])
     current_party = party_key(snapshots[-1]['party']) if snapshots else recent_party
-    cutoff = changes[-1]['to_utc'] if changes else (snapshots[0]['last_saved_utc'] if snapshots else None)
+    # Current build: runs played with the loadout of today (whenever that was, so an undone change does
+    # not reset it) and every hero within LEVEL_TOLERANCE levels of today.
+    current_build = timeline.current(current_party) if current_party else None
     current_levels = {str(h['hero_key']): h['level'] for h in snapshots[-1]['heroes']
                       if h['hero_key'] in snapshots[-1]['party']} if snapshots else {}
-    current_runs = [r for r in runs if r['party'] == current_party and cutoff and r['started_utc'] >= cutoff
-                    and set(r['xp']) == set(current_levels)
-                    and all(e.get('level_start') == e.get('level_end') == current_levels[h]
-                            for h, e in r['xp'].items())]
+
+    def near_levels(run):
+        return set(run['xp']) == set(current_levels) and all(
+            e.get(end) is not None and abs(e[end] - current_levels[h]) <= LEVEL_TOLERANCE
+            for h, e in run['xp'].items() for end in ('level_start', 'level_end'))
+    current_runs = [r for r in runs if r['party'] == current_party and near_levels(r)
+                    and timeline.matches(r, current_build, current_party)]
+    cutoff = min((r['started_utc'] for r in current_runs), default=None)
     current_evidence = stage_evidence(current_runs, [], lambda stage: catalog.stage_label(stage, locale))
     for e in current_evidence:
         e['party_names'] = [catalog.hero_name(k, locale) for k in e['party'].split(',')]
@@ -362,7 +421,8 @@ def stage_comparison(store, catalog, hours=72, locale='en-US', reading=None):
         e['current_build_comparable'] = True
         e['changes_since'] = 0
         e['changes_during'] = 0
-        e['mixed_levels'] = False
+        e['mixed_levels'] = len({tuple(sorted((h, x.get('level_start')) for h, x in r['xp'].items()))
+                                 for r in current_runs if r['stage_key'] == e['stage']}) > 1
     best_gold, gold_ties, gold_promising = best_stage(current_evidence, 'gold_h')
     best_xp, xp_ties, xp_promising = best_stage(current_evidence, 'xp_h')
     return {

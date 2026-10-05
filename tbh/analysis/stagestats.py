@@ -136,9 +136,10 @@ def field(metric, name):
     return metric.replace('_h', '_' + name)
 
 
-def confirmed(e, metric):
+def confirmed(e, metric, comparable=True):
+    """Enough runs and precision; with `comparable`, also measured with the current build."""
     return (e[field(metric, 'confidence')] in ('medium', 'high')
-            and e.get('current_build_comparable', True))
+            and (not comparable or e.get('current_build_comparable', True)))
 
 
 def significant(a, b, metric):
@@ -149,13 +150,14 @@ def significant(a, b, metric):
     return a[metric] - b[metric] > Z * (a[se] ** 2 + b[se] ** 2) ** 0.5
 
 
-def best_stage(evidence, metric):
-    """(best confirmed, confirmed stages statistically tied with it, unconfirmed stages that look better)."""
+def best_stage(evidence, metric, comparable=True):
+    """(best confirmed, confirmed stages statistically tied with it, unconfirmed stages that look better).
+    `comparable=False` ranks historical evidence measured with other builds."""
     rated = [e for e in evidence if e.get(metric)]
-    good = [e for e in rated if confirmed(e, metric)]
+    good = [e for e in rated if confirmed(e, metric, comparable)]
     best = max(good, key=lambda e: e[metric]) if good else None
     ties = [e for e in good if best and e is not best and not significant(best, e, metric)]
-    promising = sorted((e for e in rated if not confirmed(e, metric) and (not best or e[metric] > best[metric])),
+    promising = sorted((e for e in rated if not confirmed(e, metric, comparable) and (not best or e[metric] > best[metric])),
                        key=lambda e: -e[metric])
     return best, ties, promising
 
