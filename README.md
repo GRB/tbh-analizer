@@ -91,8 +91,9 @@ in SQLite. A web page served on `127.0.0.1` shows the analyses. Nothing is sent 
   state and enemies from the game process. This uses read-only process memory access.
   Field offsets come from a layout generated for the exact game build. When the game updates, the
   old layout is refused instead of guessed.
-- **Saves.** The ES3 save is decrypted and decoded each time the game writes it. Save counters
-  (stage clears/fails, gold earned, kills) confirm the outcomes that the live readings infer.
+- **Saves.** The save file is read each time the game writes it, using the game's own save
+  settings. Save counters (stage clears/fails, gold earned, kills) confirm the outcomes that the
+  live readings infer.
 - **Evidence first.** Every figure keeps its source, time and quality. Unknown is never shown as
   zero. Estimates are labelled as estimates and come with how many runs support them.
 
@@ -100,7 +101,6 @@ in SQLite. A web page served on `127.0.0.1` shows the analyses. Nothing is sent 
 
 - Windows 10/11 (x64) with TBH: Task Bar Hero installed from Steam.
 - Python 3.12 or newer.
-- The ES3 password of the save file, to read saves. It is not included in this repository.
 
 ## Setup
 
@@ -111,17 +111,17 @@ python -m venv .venv
 .venv\Scripts\python -m pip install -r requirements.txt
 ```
 
-Create `build/app/local.json`. It is local only and never committed:
+If the game is not in the default Steam library, create `build/app/local.json` (local only, never
+committed) with its folder:
 
 ```json
 {
-  "install_dir": "D:\\SteamLibrary\\steamapps\\common\\TaskbarHero",
-  "es3_password": "<save password>"
+  "install_dir": "D:\\SteamLibrary\\steamapps\\common\\TaskbarHero"
 }
 ```
 
-`install_dir` is only needed if the game is not in the default Steam library. You can also use the
-environment variables `TBH_ES3_PASSWORD`, `TBH_PORT` and `TBH_DATA_DIR`.
+Nothing else needs configuring. The environment variables `TBH_PORT` and `TBH_DATA_DIR` change the
+port and the data folder.
 
 Then start it and open http://127.0.0.1:8765:
 
@@ -154,7 +154,7 @@ Only one server collects per data folder. A second one serves the stored data re
 tbh/catalog    game data extraction and lookup
 tbh/runtime    process attach, memory layout and live readers (game state, combat)
 tbh/layouts    memory layouts of supported game builds (field offsets only)
-tbh/save       ES3 save decryption and normalisation
+tbh/save       save file reading and normalisation
 tbh/analysis   runs, economy, XP, stage statistics, combat formulas, boss profiles, data quality
 tbh/views      API payloads for each portal view
 tbh/collector.py, tbh/store.py, tbh/server.py   sampling loop, SQLite history, HTTP API

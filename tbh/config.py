@@ -14,7 +14,7 @@ class Settings:
     install_dir: Path = Path(r'C:\Program Files (x86)\Steam\steamapps\common\TaskbarHero')
     save_dir: Path = Path(os.path.expandvars(r'%USERPROFILE%\AppData\LocalLow\TesseractStudio\TaskbarHero'))
     data_dir: Path = PROJECT_ROOT / 'build' / 'app'
-    es3_password: str | None = None
+    es3_password_override: str | None = None       # normally read from the game installation
     host: str = '127.0.0.1'
     port: int = 8765
     sample_interval: float = 1.0
@@ -22,6 +22,19 @@ class Settings:
     heartbeat_seconds: float = 30.0
     extensions: list = field(default_factory=list)   # optional modules loaded by the server and CLI
     extra: dict = field(default_factory=dict)        # the whole local.json, for extensions' own sections
+
+    @property
+    def es3_password(self):
+        """Save password: the override when set, else the game's own save settings (read once)."""
+        if self.es3_password_override:
+            return self.es3_password_override
+        if not hasattr(self, '_save_settings'):
+            from .save.defaults import read_save_settings
+            try:
+                self._save_settings = read_save_settings(self.install_dir / 'TaskBarHero_Data')
+            except Exception:   # unreadable installation: saves stay unavailable, with a clear reason
+                self._save_settings = None
+        return (self._save_settings or {}).get('password')
 
     @property
     def save_file(self):
@@ -53,12 +66,14 @@ def load_settings(path=None):
     for key in ('install_dir', 'save_dir', 'data_dir'):
         if key in values:
             setattr(settings, key, Path(os.path.expandvars(values[key])))
-    for key in ('es3_password', 'host', 'port', 'sample_interval', 'save_poll_interval', 'heartbeat_seconds'):
+    if values.get('es3_password'):
+        settings.es3_password_override = values['es3_password']
+    for key in ('host', 'port', 'sample_interval', 'save_poll_interval', 'heartbeat_seconds'):
         if key in values:
             setattr(settings, key, values[key])
     settings.extensions = list(values.get('extensions') or [])
     settings.extra = values
-    env = {'TBH_ES3_PASSWORD': 'es3_password', 'TBH_PORT': 'port', 'TBH_DATA_DIR': 'data_dir'}
+    env = {'TBH_ES3_PASSWORD': 'es3_password_override', 'TBH_PORT': 'port', 'TBH_DATA_DIR': 'data_dir'}
     for name, key in env.items():
         if os.environ.get(name):
             value = os.environ[name]

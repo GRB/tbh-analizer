@@ -68,7 +68,7 @@ def read_stable(path, attempts=4, pause=0.25):
 
 def load_save(path, password):
     if not password:
-        raise SaveReadError('ES3 password not configured (build/app/local.json: es3_password)')
+        raise SaveReadError('save settings not found in the game installation (check install_dir)')
     raw, stat = read_stable(path)
     try:
         document = json.loads(decrypt(raw, password).decode('utf-8'))

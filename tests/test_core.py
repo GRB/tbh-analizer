@@ -11,6 +11,7 @@ from tbh.analysis.reconcile import reconcile
 from tbh.analysis.runs import RunTracker
 from tbh.runtime.layout import field_map
 from tbh.runtime.reader import decode_double, decode_int
+from tbh.save.defaults import parse as parse_save_settings
 from tbh.save.es3 import decrypt, encrypt, load_save, SaveReadError
 from tbh.save.model import normalize, stage_counters
 from tbh.store import Store
@@ -82,6 +83,18 @@ class SaveTests(unittest.TestCase):
             path.write_bytes(blob)
             with self.assertRaises(SaveReadError):
                 load_save(path, 'wrong')
+
+    def test_save_settings_are_read_from_the_es3_defaults_asset(self):
+        def text(value):
+            data = value.encode()
+            return struct.pack('<i', len(data)) + data + bytes(-len(data) % 4)
+        raw = (bytes(12) + struct.pack('<i', 1) + bytes(12) + text('ES3Defaults') + struct.pack('<i', 0)
+               + text('SaveFile_Live.es3') + struct.pack('<ii', 1, 0) + text('example-pass') + bytes(40))
+        self.assertEqual(parse_save_settings(raw), {'name': 'ES3Defaults', 'location': 0, 'path': 'SaveFile_Live.es3',
+                                                    'encryption': 1, 'compression': 0, 'password': 'example-pass'})
+        other = bytes(28) + text('SomethingElse') + bytes(16)
+        self.assertIsNone(parse_save_settings(other))
+        self.assertIsNone(parse_save_settings(raw[:60]))   # truncated
 
     def test_big_ids_are_strings_and_quantities_per_slot(self):
         snap = normalize(json.dumps(self.player()))
