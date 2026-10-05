@@ -1,6 +1,7 @@
 """Boss attacks learned from recorded fights, and the fight simulation. Synthetic data shaped like the
 three recorded 2210 fights (D011); no game, no save."""
 import unittest
+from unittest.mock import patch
 
 from tbh.analysis import bossprofile as bp
 from tbh.analysis.combat import RunCombat
@@ -32,6 +33,21 @@ FIGHTS = [fight(False, {201: 9.08, 401: 18.16, 501: 21.19}, PARTY_A),
 
 
 class LearnTests(unittest.TestCase):
+    def test_chronological_check_never_uses_future_or_overlapping_fights(self):
+        fights = [{**f, 'id': i, 'utc': f'2026-10-03T10:0{i}:00+00:00',
+                   'end_utc': f'2026-10-03T10:0{i}:30+00:00'} for i, f in enumerate(FIGHTS)]
+        fights[1]['end_utc'] = '2026-10-03T10:03:00+00:00'
+        with patch.object(bp, 'simulate', return_value=None):
+            checks = bp.chronological_checks(fights, TARGET, K, 401)
+        self.assertEqual([r['training_run_ids'] for r in checks], [[], [0], [0]])
+        self.assertTrue(all(r['predicted_won'] is None for r in checks))
+
+    def test_false_win_contradicts_model_without_hiding_untested_fights(self):
+        result = bp.validation_summary([{'predicted_won': True, 'won': False},
+                                        {'predicted_won': None, 'won': True}])
+        self.assertEqual(result['status'], 'contradicted')
+        self.assertEqual((result['evaluated'], result['false_wins']), (1, 1))
+
     def test_burst_found_from_deaths_at_the_same_moment(self):
         profile = bp.learn(FIGHTS)
         self.assertEqual(len(profile['bursts']), 1)

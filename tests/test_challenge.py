@@ -1,9 +1,11 @@
 """Act boss plan: boss data, the fight race, point plans, fight recording. Synthetic data only."""
 import unittest
+from types import SimpleNamespace
+from unittest.mock import patch
 
 from tbh.analysis.challenge import best_points, boss_target, fight, score
 from tbh.analysis.combat import RunCombat
-from tbh.views.challenge import Party, act_boss_steps
+from tbh.views.challenge import Party, act_boss_steps, _gear_options
 
 K = {'bfmi': 0.4, 'bfmj': 12.0, 'bfmk': 14.0, 'bfml': 0.85, 'bfmm': 0.75, 'bfmq': 0.95, 'bfmr': 3.0, 'bfms': 2.8, 'bfmt': 11.0}
 
@@ -25,6 +27,18 @@ def hero(key, hp, armor, absorption=0.0, ad=100.0, aspd=1.0):
 
 
 class TargetTests(unittest.TestCase):
+    def test_gear_plan_rejects_unmapped_losses_and_locked_candidates(self):
+        current = {'stats': [{'stat': 'Armor', 'value': 50}]}
+        item = {'type': 'GEAR', 'parts': 'ARMOR', 'level': 1, 'stats': [{'stat': 'MaxHp', 'value': 20}]}
+        ctx = SimpleNamespace(enums={}, gear_scales={('MaxHp', 'FLAT'): 1}, worn={401: {'ARMOR': current}})
+        party = SimpleNamespace(ctx=ctx, snapshot={}, catalog=SimpleNamespace(heroes={}), live={401: {}}, locale='en-US')
+        with patch('tbh.views.challenge.containers', return_value={'stash': {'items': [item]}}):
+            self.assertEqual(_gear_options(party, 20), {})
+            ctx.gear_scales[('Armor', 'FLAT')] = 1
+            self.assertIn((401, 'ARMOR'), _gear_options(party, 20))
+            item['blocked'] = True
+            self.assertEqual(_gear_options(party, 20), {})
+
     def test_act_boss_has_no_stage_multipliers_and_skills_add_damage(self):
         t = boss_target(Catalog(), 2210)
         self.assertAlmostEqual(t['hp'], 1950 * 70.77)

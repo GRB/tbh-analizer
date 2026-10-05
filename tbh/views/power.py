@@ -117,7 +117,8 @@ class PowerContext:
         out = {}
         for name, stats in (('before', final), ('after', after)):
             t = threat.stage_threat(self.catalog, reading['stage_key'], {
-                'final': stats, 'resistances': live.get('resistances'), 'max_hp': stats.get('MaxHp')}, reading['armor_constants'])
+                'hero_key': hero_key, 'final': stats, 'resistances': live.get('resistances'),
+                'max_hp': stats.get('MaxHp')}, reading['armor_constants'])
             boss = (t or {}).get('boss')
             if not boss or not boss.get('hits_to_die'):
                 return None

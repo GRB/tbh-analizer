@@ -196,8 +196,18 @@ def purchase_impact(snapshots, runs, max_runs=MAX_RUNS):
         status = ('no comparable runs' if not b else
                   'too few runs before' if len(b) < MIN_RUNS else
                   'collecting' if len(a) < MIN_RUNS else 'measured')
+        signatures = {tuple(sorted(_levels(r, end=end).items())) for r in b + a for end in (False, True)}
+        stable_levels = bool(b and a and len(signatures) == 1 and
+                             all(v is not None for _, v in next(iter(signatures))) and
+                             all(set(_levels(r)) == set(party_key(r['party']).split(',')) for r in b + a))
+        validation = {'stable_levels': stable_levels, 'simultaneous_changes': len(g['changes']),
+                      'status': 'insufficient_runs' if status != 'measured' else
+                                'confounded_levels' if not stable_levels else
+                                'multiple_changes' if len(g['changes']) != 1 else 'observational_comparison',
+                      'note': 'Before/after association, not an isolated causal effect or prospective prediction test.'}
         out.append({'from_utc': g['from_utc'], 'to_utc': g['to_utc'], 'changes': g['changes'],
                     'stage': key[0] if key else None, 'party': key[1] if key else None,
                     'runs_before': len(b), 'runs_after': len(a), 'runs_needed': max(0, MIN_RUNS - len(a)),
-                    'level_ups': level_ups, 'status': status, 'metrics': compare(b, a) if b and a else {}})
+                    'level_ups': level_ups, 'status': status, 'validation': validation,
+                    'metrics': compare(b, a) if b and a else {}})
     return list(reversed(out))

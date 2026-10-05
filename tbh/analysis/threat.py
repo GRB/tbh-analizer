@@ -3,13 +3,24 @@
 HP lost per hit = enemy damage x (1 - armor reduction) - Damage Absorption, enemy damage =
 AttackDamage x MonsterAtkDmgMultiplier / 1000 (x BossDamageMultiplier / 1000 for the stage boss).
 Elemental attacks skip armor and use the resistance factor instead. Validated on hits at stage
-level 45 with reductions of 0.47-0.68; above the hero cap (0.75 or 0.85, unknown which) and for
-enemies whose element is unknown, results are flagged rather than trusted.
+level 45 with reductions of 0.47-0.68. The native cap predicate selects 0.85 for melee
+heroes and 0.75 otherwise; missing identity retains cap uncertainty. Most enemy elements
+and additional combat mechanics still lack independent validation.
 
 Not modelled: block, dodge, skills of enemies, how many enemies hit at once, healing.
 """
 from ..catalog.catalog import num
 from .combat import armor_reduction, resistance
+
+
+def melee_kind(catalog, hero_key):
+    """Build 25454993's armor-cap predicate is HeroInfoData.IsMeleeHero."""
+    value = (catalog.heroes.get(str(hero_key)) or {}).get('IsMeleeHero')
+    if value in (True, 'True', 'true', '1'):
+        return True
+    if value in (False, 'False', 'false', '0'):
+        return False
+    return None
 
 # Enemies whose base attack was observed hitting with an element (no armor, resistance applies):
 # Fire Elemental 24.2 damage took 20.74 HP = 24.2 x 1.20 - 8.3 absorption, 136 times (D009).
@@ -44,17 +55,20 @@ def hit(damage, hero, level, k, monster_key=None):
             return None
         reduction = 1 - factor
     else:
-        reduction = armor_reduction(final['Armor'], damage, level, k)
+        melee = hero.get('is_melee')
+        cap = k.get('bfml' if melee else 'bfmm') if isinstance(melee, bool) else None
+        reduction = armor_reduction(final['Armor'], damage, level, k, cap=cap)
     taken = max(0.0, damage * (1 - reduction) - absorption)
     max_hp = hero.get('max_hp') or final.get('MaxHp')
     return {'hit': taken, 'reduction': reduction, 'element': element,
             'fraction': taken / max_hp if max_hp else None,
             'hits_to_die': max_hp / taken if max_hp and taken > 0 else None,
-            'cap_uncertain': not element and reduction > min(k['bfml'], k['bfmm'])}
+            'cap_uncertain': not element and cap is None and reduction > min(k['bfml'], k['bfmm'])}
 
 
 def stage_threat(catalog, stage_key, hero, k):
     """Worst normal-monster hit and the boss hit of a stage on one hero, or None."""
+    hero = {**hero, 'is_melee': melee_kind(catalog, hero.get('hero_key'))} if hasattr(catalog, 'heroes') else hero
     stage = catalog.stages.get(str(stage_key)) or {}
     level = num(stage.get('StageLevel'))
     if level is None:
@@ -84,8 +98,9 @@ def party_threat(catalog, stage_key, heroes, k):
     return {'heroes': rows, 'worst_boss_fraction': max(fractions) if fractions else None} if rows else None
 
 
-def live_heroes(reading):
+def live_heroes(reading, catalog=None):
     """Heroes of a combat reading in the shape `hit` expects."""
     return [{'hero_key': h['hero_key'], 'final': (h.get('stats') or {}).get('final') or {},
-             'resistances': h.get('resistances'), 'max_hp': h.get('max_hp')}
+             'resistances': h.get('resistances'), 'max_hp': h.get('max_hp'),
+             'is_melee': melee_kind(catalog, h['hero_key']) if catalog else None}
             for h in (reading or {}).get('heroes') or [] if (h.get('stats') or {}).get('final')]

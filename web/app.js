@@ -342,11 +342,13 @@ views.actboss = async () => {
       <li>Damage per second on this boss in your fights: ${m.dps.map((v) => n(v)).join(', ') || '—'} (attack-count buffs and crits move it).</li></ul>`;
   }
   if (t.check && t.check.length) {
+    if (t.validation) html += `<p>${esc(t.validation.status)}: ${n(t.validation.correct)} / ${n(t.validation.evaluated)} outcomes matched.
+      ${n(t.validation.false_wins)} predicted wins were losses. ${esc(t.validation.note)}</p>`;
     html += '<h3>Model check on your fights</h3>' + table([
       { label: 'Fight', render: (r) => agoAt(r.utc) },
-      { label: 'Predicted (without this fight)', render: (r) => r.predicted_won ? pill('win', 'good') : pill(`lose · boss at ${pct(r.predicted_left)}`, 'bad') },
+      { label: 'Predicted from earlier fights', render: (r) => r.predicted_won == null ? pill('insufficient prior evidence', 'warn') : r.predicted_won ? pill('win', 'good') : pill(`lose · boss at ${pct(r.predicted_left)}`, 'bad') },
       { label: 'What happened', render: (r) => r.won ? pill('won', 'good') : pill(`lost · boss at ${pct(r.left)}`, 'bad') },
-    ], t.check) + '<p class="note">Each fight is predicted from the other recorded fights only, with the stats the heroes had then.</p>';
+    ], t.check) + '<p class="note">Historical replay: each fight uses only earlier completed fights, with the stats recorded in its session. This is not a prediction recorded before gameplay.</p>';
   }
 
   html += '<h3>Each hero against this boss</h3>' + table([
@@ -689,7 +691,8 @@ views.runes = async () => {
     { label: 'Stats (from game)', wrap: true, render: (r) => r.stat_change === null || r.stat_change === undefined ? '<span class="muted">not recorded</span>'
       : r.stat_change.length ? r.stat_change.map((h) => `${esc(h.name)}: ${h.stats.filter((x) => x.pct !== null).sort((a, b) => Math.abs(b.pct) - Math.abs(a.pct)).slice(0, 3).map((x) => `${esc(x.name)} ${x.pct >= 0 ? '+' : ''}${NF1.format(x.pct)}%`).join(', ')}`).join('<br>') : 'no stat change' },
     { label: 'Level-ups', num: true, render: (r) => r.level_ups ? pill(n(r.level_ups), 'warn') : '0' },
-    { label: 'Status', wrap: true, render: (r) => pill(({ 'too few runs before': 'few runs before', 'no comparable runs': 'no runs before' }[r.status] || r.status) + (r.status === 'collecting' ? ` (${r.runs_needed} more)` : ''), statusKind[r.status] || '') },
+    { label: 'Status', wrap: true, render: (r) => pill(({ 'too few runs before': 'few runs before', 'no comparable runs': 'no runs before' }[r.status] || r.status) + (r.status === 'collecting' ? ` (${r.runs_needed} more)` : ''), statusKind[r.status] || '')
+      + (r.validation ? `<br>${esc(r.validation.status)}<br>${esc(r.validation.note)}` : '') },
   ], impact.purchases, 'No power changes in this window.');
   html += '<h3>Accumulated effects</h3>' + table([
     { label: 'Effect', render: (r) => esc(r.name) }, { label: 'Stat', render: (r) => `<span class="mono">${esc(r.stat)}</span>` },
@@ -796,7 +799,26 @@ views.quality = async () => {
     Nonpositive save intervals skipped: ${n(s.nonpositive_intervals)}.</p>`;
   html += table([{ label: 'Condition', key: 'reason' }, { label: 'Windows (overlap possible)', num: true, key: 'count' }],
     Object.entries(s.exclusions).map(([reason, count]) => ({ reason, count })), 'No exclusions in these windows.');
-  html += '</details><h3>Window evidence</h3>';
+  html += '</details>';
+  if (d.farming) {
+    html += `<h3>Farming including failures</h3><p>${esc(d.farming.note)}</p>
+      <p>${n(d.farming.summary.episodes)} stable episodes, ${dur(d.farming.summary.seconds)};
+      ${n(d.farming.summary.with_failures)} with failures, ${n(d.farming.summary.mixed_stage)} spanning stages.</p>`;
+    html += table([{label: 'Until', render: e => time(e.end_utc)},
+      {label: 'Stages', render: e => esc(e.stages.join(', '))},
+      {label: 'Time', render: e => dur(e.seconds)},
+      {label: 'Clears / fails', render: e => `${n(e.clears)} / ${n(e.fails)}`},
+      {label: 'Gross gold/h', render: e => n(e.gross_gold_h)},
+      {label: 'Net gold/h', render: e => n(e.net_gold_h)}], d.farming.episodes.slice(-20).reverse(), 'No comparable episodes.');
+    if (d.farming.recovery_cycles) html += '<details><summary>Failure and recovery cycles</summary><p>From a failed run to the next recorded clear of the same stage. Unfinished observations retain their elapsed time; no income is apportioned.</p>' + table([
+      {label: 'Stage', key: 'stage'}, {label: 'Evidence', key: 'status'},
+      {label: 'Failure + recovery', render: c => dur(c.failure_and_recovery_s)},
+      {label: 'After failure', render: c => dur(c.after_failure_s)}], d.farming.recovery_cycles.slice(-20).reverse()) + '</details>';
+    html += '<details><summary>Farming exclusions (overlap possible)</summary>' + table([
+      {label: 'Reason', key: 'reason'}, {label: 'Windows', key: 'count'}],
+      Object.entries(d.farming.excluded_windows).map(([reason, count]) => ({reason, count}))) + '</details>';
+  }
+  html += '<h3>Window evidence</h3>';
   html += table([
     { label: 'Save window', render: w => `${time(w.end_utc)}<br><span class="muted">${dur(w.seconds)} · ${esc(w.stage_label)}</span>` },
     { label: 'Coverage', render: w => `${pct(w.coverage.covered_s / w.seconds)}<br>${n(w.coverage.sample_count)} stored readings` },
@@ -812,6 +834,10 @@ views.quality = async () => {
       <p>Balance differences at endpoints (save − sample): ${n(w.gold.start_balance_residual)} / ${n(w.gold.end_balance_residual)}.
       ${esc(w.gold.note)}</p>
       ${w.gold.spending_overlap_possible ? '<p>Observed balance drops in this window make overlapping spending/income possible. The exact event amounts remain unknown.</p>' : ''}
+      ${w.gold.rune_spending ? `<p>Rune-level changes: catalog cost ${n(w.gold.rune_spending.catalog_gold_cost)} gold;
+      implied spend minus catalog cost ${n(w.gold.rune_spending.spend_minus_catalog_cost)}.
+      ${esc(w.gold.rune_spending.status)}. ${esc(w.gold.rune_spending.note)}
+      ${esc(w.gold.rune_spending.unpriced.join('; '))}</p>` : ''}
       <p>Save income sources: monsters ${n(w.gold.sources.gold_monster)}, alchemy ${n(w.gold.sources.gold_alchemy)}, offline ${n(w.gold.sources.gold_offline)}.</p>
       ${table([{ label: 'Hero', key: 'name' }, { label: 'Levels', render: h => `${n(h.level_before)} → ${n(h.level_after)}` },
         { label: 'Save XP', num: true, render: h => n(h.save_gain, 1) }, { label: 'Sample XP', num: true, render: h => n(h.sample_gain, 1) },

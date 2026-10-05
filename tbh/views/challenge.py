@@ -13,10 +13,10 @@ from ..analysis.challenge import SAFETY, best_points, boss_target, fight, score
 from ..analysis.impact import stats_at
 from ..analysis.threat import hit
 from ..analysis.progress import xp_to_level
-from ..analysis.threat import live_heroes
+from ..analysis.threat import live_heroes, melee_kind
 from ..catalog.catalog import num
 from ..snapshots import snapshots_since
-from .analytics import front_hero, recent_rates
+from .analytics import front_hero, recent_rates, unique_runs
 from .items import PARTS, containers, stat_name
 from .power import PowerContext, item_raw
 
@@ -39,6 +39,9 @@ def act_boss_steps(t, result):
     fights), then points, gear you own, stats to look for and when to retry."""
     now, retry, mech = t['now'], t.get('retry'), t.get('mechanics')
     steps = []
+    if (t.get('validation') or {}).get('status') == 'contradicted':
+        return ['Recorded fights contradict this model. Win and retry recommendations are withheld; '
+                'the comparisons below remain exploratory scenarios.']
     for b in (mech or {}).get('bursts') or []:
         dead = [h for h in b['heroes'] if not h['survives']]
         what = (f"×{b['skill']['value']:g} hit on the back line at {b['at_s']:.1f} s"
@@ -87,7 +90,7 @@ class Party:
         self.catalog, self.snapshot, self.locale = app.catalog, snapshot, locale
         reading = self.ctx.reading or {}
         self.k = reading.get('armor_constants')
-        self.live = {h['hero_key']: h for h in live_heroes(reading) if h['hero_key'] in self.ctx.heroes}
+        self.live = {h['hero_key']: h for h in live_heroes(reading, self.catalog) if h['hero_key'] in self.ctx.heroes}
         self.levels = {h['hero_key']: h['level'] for h in snapshot['heroes']}
         self._steady(reading)
         self._passives(snapshot)
@@ -203,13 +206,19 @@ def _gear_options(party, max_level):
     weapons = {int(k): {'MAIN_WEAPON': h['MainWeaponGearType'], 'SUB_WEAPON': h['SubWeaponGearType']}
                for k, h in party.catalog.heroes.items()}
     pool = [it for c in containers(party.snapshot, party.catalog, party.locale).values() for it in c['items']
-            if it.get('type') == 'GEAR' and it.get('parts') and item_raw(it, party.ctx.enums) is not None]
+            if it.get('type') == 'GEAR' and it.get('parts') and not it.get('blocked') and not it.get('slot_blocked')
+            and item_raw(it, party.ctx.enums) is not None]
     out = {}
     for hero in party.live:
         for part in PARTS:
+            current = party.ctx.worn.get(hero, {}).get(part)
+            old_raw = item_raw(current, party.ctx.enums) if current else {}
+            if old_raw is None or any(key not in party.ctx.gear_scales for key in old_raw):
+                continue
             need = weapons.get(hero, {}).get(part)
             fits = [it for it in pool if it['parts'] == part and (it['level'] or 0) <= max_level
-                    and (not need or it['gear_type'] == need)]
+                    and (not need or it['gear_type'] == need)
+                    and all(key in party.ctx.gear_scales for key in item_raw(it, party.ctx.enums))]
             if fits:
                 out[(hero, part)] = fits
     return out
@@ -236,34 +245,31 @@ def _best_gear(party, evaluate_gear, max_level):
 
 
 def _profile(store, catalog, stage, target, party, front):
-    """Learn the boss's attacks from the recorded fights against it (bossprofile), and check the simulation
-    on each recorded fight with the others only (leave-one-out): the accuracy shown with the plan."""
-    events = [(e['utc'], json.loads(e['payload'])) for e in
-              store.query("SELECT utc, payload FROM events WHERE kind = 'hero_stats' ORDER BY utc")]
+    """Fit comparable fights; evaluate each using only earlier completed fights."""
+    events = store.query("SELECT utc, session_id, payload FROM events WHERE kind = 'hero_stats' ORDER BY utc")
     fights = []
-    for r in store.query('SELECT id, started_utc, outcome, combat FROM runs WHERE stage_key = ? AND combat IS NOT NULL '
-                         'ORDER BY id', (stage,)):
-        stats = stats_at(events, r['started_utc']) or {}
-        heroes = [{'hero_key': int(key), 'final': v, 'base': v, 'max_hp': v.get('MaxHp'), 'resistances': None}
+    rows = store.query('SELECT r.* FROM runs r JOIN sessions s ON s.id = r.session_id '
+                       'WHERE r.stage_key = ? AND r.combat IS NOT NULL AND r.partial_start = 0 '
+                       'AND COALESCE(r.gaps, 0) = 0 AND r.outcome IN (\'clear\', \'fail\') '
+                       'AND s.build_id = ? ORDER BY r.id', (stage, str(catalog.build_id)))
+    for r in unique_runs(rows):
+        members = {int(key) for key in (r['party'] or '').split(',') if key}
+        if members != set(party.live):
+            continue
+        stats = stats_at([(e['utc'], json.loads(e['payload'])) for e in events
+                          if e['session_id'] == r['session_id']], r['started_utc']) or {}
+        heroes = [{'hero_key': int(key), 'final': v, 'base': v, 'max_hp': v.get('MaxHp'), 'resistances': None,
+                   'is_melee': melee_kind(catalog, key)}
                   for key, v in stats.items() if int(key) in party.live]
-        if heroes:
-            fights.append({'id': r['id'], 'utc': r['started_utc'], 'combat': json.loads(r['combat']), 'heroes': heroes,
+        required = ('MaxHp', 'Armor', 'AttackDamage', 'AttackSpeed')
+        if len(heroes) == len(members) and all(all(h['final'].get(k) is not None for k in required) for h in heroes):
+            fights.append({'id': r['id'], 'utc': r['started_utc'], 'end_utc': r['ended_utc'],
+                           'combat': json.loads(r['combat']), 'heroes': heroes,
                            'won': r['outcome'] == 'clear'})
     if not fights:
         return None, []
     profile = bossprofile.fit_bursts(bossprofile.learn(fights), target, fights, party.k, front)
-    check = []
-    for f in fights:
-        boss = f['combat'].get('boss')
-        if not boss:
-            continue
-        others = [g for g in fights if g is not f]
-        learned = bossprofile.fit_bursts(bossprofile.learn(others), target, others, party.k, front)
-        sim = bossprofile.simulate(target, learned, f['heroes'], party.k, front)
-        if sim:
-            check.append({'utc': f['utc'], 'predicted_won': sim['won'], 'predicted_left': sim['boss_hp_left'],
-                          'won': bool(boss.get('killed')), 'left': boss.get('hp_left_fraction')})
-    return profile, check
+    return profile, bossprofile.chronological_checks(fights, target, party.k, front)
 
 
 def _mechanics(catalog, target, profile, party, front, locale):
@@ -395,6 +401,7 @@ def _challenges(app, locale='en-US'):
             continue
 
         profile, check = _profile(store, catalog, stage, target, party, front)
+        validation = bossprofile.validation_summary(check)
         simulate = bool(profile and profile['dps'])
 
         def run(plan=None, gear=None, extra=None):
@@ -434,7 +441,8 @@ def _challenges(app, locale='en-US'):
                              max_level=min(party.levels[h] for h in party.live))
         both, both_sim = run(points, gear), sim(points, gear)
         retry = None
-        for extra in range(1, LEVELS_AHEAD + 1):
+        retry_levels = range(1, LEVELS_AHEAD + 1) if validation['status'] != 'contradicted' else ()
+        for extra in retry_levels:
             level = min(party.levels[h] for h in party.live) + extra
             plan, _ = best_points(party.options, party.plan_now, lambda p: value(plan=p, gear=gear),
                                   extra_points=extra, max_moves=0, valid=party.valid)
@@ -472,12 +480,15 @@ def _challenges(app, locale='en-US'):
             'mode': 'simulation' if simulate else 'estimate',
             'simulation': {'now': _sim_view(catalog, now_sim, locale), 'plan': _sim_view(catalog, both_sim, locale)} if simulate else None,
             'mechanics': _mechanics(catalog, target, profile, party, front, locale), 'check': check,
+            'validation': validation,
             'winnable_now': won_now, 'winnable_with_plan': won_plan,
             # How much better the party must get for a safe win: damage dealt before the wipe (simulation) or
             # survival x damage (estimate).
             'missing_factor': ((RETRY_REACH / both_sim['reach']) if simulate and both_sim and both_sim['reach'] else
                                (SAFETY / both['margin'] if both and both['margin'] else None)),
         })
+        if validation['status'] == 'contradicted':
+            targets[-1].update(winnable_now=None, winnable_with_plan=None, retry=None, missing_factor=None)
         targets[-1]['steps'] = act_boss_steps(targets[-1], {'safety': SAFETY})
     targets.sort(key=lambda t: (t['why'] != 'failed', t['stage']))
     return {

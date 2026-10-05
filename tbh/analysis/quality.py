@@ -270,6 +270,7 @@ def ledger(snapshots, samples, runs, thresholds, max_gap_s=MAX_STORED_GAP_SECOND
                         'start_utc': w['start_utc'], 'end_utc': w['end_utc'], 'seconds': end - start,
                         'stage': w['stage'], 'stage_rate_eligible': w['valid'], 'flags': flags,
                         'coverage': {k: v for k, v in obs.items() if k not in ('rows', 'start', 'end')},
+                        'observed_stages': sorted({r['stage_key'] for r in obs['rows'] if r.get('stage_key') is not None}),
                         'gold': gold, 'xp': xp, 'runs': run})
     interval_statuses = reconcile_intervals(windows, runs, index)
     seconds = sum(w['seconds'] for w in windows)

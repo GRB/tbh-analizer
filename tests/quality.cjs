@@ -13,7 +13,9 @@ const windows = Array.from({ length: 61 }, (_, i) => ({
   gold: { status: i === 0 ? 'discrepancy' : i === 1 ? 'boundary_uncertain' : i === 2 ? 'missing' : 'matched',
     residual: i === 0 ? 50 : i === 2 ? null : 0, save_earned: 200, sample_rises: i === 2 ? null : 200,
     sample_falls: 0, save_net: 200, sample_net: 200, implied_spend: 0, start_balance_residual: 0,
-    end_balance_residual: 0, sources: { gold_monster: 200, gold_alchemy: null, gold_offline: 0 }, note: 'Sampled rises are not gross income.' },
+    end_balance_residual: 0, sources: { gold_monster: 200, gold_alchemy: null, gold_offline: 0 }, note: 'Sampled rises are not gross income.',
+    rune_spending: {catalog_gold_cost: 50, spend_minus_catalog_cost: null, status: 'incomplete', unpriced: [],
+      note: 'Catalog costs are not receipts.'} },
   xp: [{ hero_key: 401, name: 'Hero <img src=x onerror=alert(1)>', status: 'matched', residual: 0,
     save_kind: 'same_level', runtime_kinds: { same_level: 2 }, level_before: 20, level_after: 20,
     save_gain: 60, sample_gain: 60, start_xp_residual: 0, end_xp_residual: 0 }],
@@ -27,6 +29,9 @@ function report(url) {
   const status = url.searchParams.get('status') || 'all';
   const filtered = windows.filter(w => status === 'all' || (status === 'attention' ? w.gold.status !== 'matched' : w.gold.status === status));
   return { hours: 24, catalog_build: 'test',
+    farming: {summary: {episodes: 1, seconds: 60, with_failures: 1, mixed_stage: 1}, note: 'Failures remain included.',
+      excluded_windows: {'loadout unknown': 2}, episodes: [{end_utc: windows[0].end_utc, stages: [1108, 1109],
+        seconds: 60, clears: 0, fails: 1, gross_gold_h: 12000, net_gold_h: -3000}]},
     xp_validation: { observed_transitions: 1, statuses: { consistent: 1 }, native_identity_matched_transitions: 1,
       native_rule: {status: 'confirmed_for_catalog_build', build_id: 'test', rule: 'Keep the remainder.',
         source: 'local evidence', game_assembly_sha256: 'test'}, note: 'Not independent reward measurement.', events: [] },
@@ -64,10 +69,12 @@ const server = http.createServer((req, res) => {
     page.on('pageerror', e => errors.push(e.message));
     await page.goto(`http://127.0.0.1:${server.address().port}/#quality`);
     await page.getByRole('heading', { name: 'Data quality', exact: true }).waitFor();
+    assert(await page.getByRole('heading', {name: 'Farming including failures', exact: true}).isVisible());
     await page.getByText('XP level-up evidence: 1 observed transitions', { exact: true }).click();
     assert(await page.getByText('Not independent reward measurement.', { exact: true }).isVisible());
     await page.getByText('1–50 of 61 windows', { exact: true }).waitFor();
     await page.getByText('Inspect window', { exact: true }).first().click();
+    assert(await page.getByText(/Catalog costs are not receipts/).first().isVisible());
     assert(await page.getByText('end boundary timing evidence: run 99', { exact: false }).first().isVisible());
     assert(await page.getByText('Interval reconciliation: Unique correspondence.', { exact: false }).first().isVisible());
     await page.getByText('Alchemy', { exact: true }).count();

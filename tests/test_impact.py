@@ -119,6 +119,7 @@ class ImpactTests(unittest.TestCase):
         saves = [save(10, {1: 1}), save(11, {1: 2})]
         row = purchase_impact(saves, before + after)[0]
         self.assertGreaterEqual(row['level_ups'], 2)   # a level-up inside a run + a level change across the purchase
+        self.assertEqual(row['validation']['status'], 'confounded_levels')
 
 
 if __name__ == '__main__':

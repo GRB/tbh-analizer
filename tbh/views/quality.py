@@ -5,6 +5,8 @@ from datetime import datetime, timedelta, timezone
 
 from ..analysis.quality import MAX_STORED_GAP_SECONDS, SampleIndex, ledger
 from ..analysis.xp_evidence import level_up_evidence
+from ..analysis.spending import rune_spending
+from ..analysis.farming import farming_report
 from ..snapshots import light_snapshot
 from .analytics import unique_runs
 
@@ -42,6 +44,11 @@ def quality_report(store, catalog, hours=24, offset=0, limit=50, status='all', n
                                'AND id <= ? ORDER BY id', (first, run_end, marks['runs']))
     runs = unique_runs(raw_runs)
     report = ledger(snapshots, samples, runs, catalog.level_thresholds)
+    by_id = {s['save_id']: s for s in snapshots}
+    for w in report['windows']:
+        w['gold']['rune_spending'] = rune_spending(by_id[w['save_from']], by_id[w['save_to']], catalog,
+                                                w['gold']['implied_spend'])
+    report['farming'] = farming_report(snapshots, report['windows'], catalog.level_thresholds, runs)
     report['xp_validation'] = level_up_evidence(SampleIndex(samples), catalog.level_thresholds, catalog.build_id, sessions)
     for w in report['windows']:
         w['stage_label'] = catalog.stage_label(w['stage']) if w['stage'] else None

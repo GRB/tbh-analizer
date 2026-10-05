@@ -35,7 +35,8 @@ def resistance(individual, caps):
 def armor_reduction(armor, damage, level, k, cap=None):
     """Fraction of a physical hit removed by armor (D005). `k`: the game's coefficients; `level`: stage
     level. Matched observed hits on 2026-10-01 (D009) where the reduction stayed below both hero caps
-    (0.75 / 0.85); which cap applies is unknown, so `cap` None means "not capped by the hero"."""
+    (0.75 / 0.85). D012 resolves their selection through IsMeleeHero; callers supply that cap.
+    `cap` None means "not capped by the hero" and must retain uncertainty."""
     q = armor ** 2 / (k['bfmi'] * damage + armor + 0.01) / (k['bfmj'] + k['bfmk'] * level)
     r = q / (1 + q) if q <= k['bfmr'] else k['bfmq'] - k['bfms'] / (q + k['bfmt'])
     return min(r, cap if cap is not None else 1.0, k['bfmq'])

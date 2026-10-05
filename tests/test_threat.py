@@ -36,6 +36,15 @@ class Catalog:
 
 
 class ThreatTests(unittest.TestCase):
+    def test_native_cap_uses_melee_kind_and_unknown_stays_flagged(self):
+        hero = {**PRIEST, 'final': {'Armor': 100000, 'DamageAbsorption': 0}}
+        melee = hit(100, {**hero, 'is_melee': True}, 45, K)
+        ranged = hit(100, {**hero, 'is_melee': False}, 45, K)
+        self.assertAlmostEqual(melee['hit'], 15)
+        self.assertAlmostEqual(ranged['hit'], 25)
+        self.assertFalse(melee['cap_uncertain'])
+        self.assertTrue(hit(100, hero, 45, K)['cap_uncertain'])
+
     def test_hits_match_the_capture(self):
         cat = Catalog()
         self.assertAlmostEqual(hit(enemy_damage(cat, 2209, 20111), PRIEST, 45, K, 20111)['hit'], 3.777, places=2)

@@ -648,6 +648,15 @@ def act_boss_suggestions(result):
     """One card for the last failed act boss: 'to beat this boss you need to'."""
     out = []
     for t in (result or {}).get('targets') or []:
+        validation = t.get('validation') or {}
+        if validation.get('status') == 'contradicted':
+            out.append({'id': f"act-boss-{t['stage']}", 'area': 'heroes',
+                        'title': f"Boss model needs calibration: {t['label']}",
+                        'detail': f"Only {validation['correct']} of {validation['evaluated']} historical replay outcomes matched. "
+                                  'Win and retry recommendations are withheld. Inspect the fights in the Act boss tab.',
+                        'basis': 'observed', 'confidence': 'insufficient', 'priority': 2,
+                        'metrics': {'stage': t['stage'], 'validation': validation}})
+            continue
         now, best = t['now'], t['both']
         if not now:
             continue
@@ -668,7 +677,7 @@ def act_boss_suggestions(result):
                     return f"lose with the boss at {x['boss_hp_left']:.0%}"
                 # Damage per second varied ±25% between recorded fights: a narrow win is a coin flip.
                 return (f"win in {x['kill_s']:.0f} s" if x['reach'] >= RETRY_REACH else
-                        f"win narrowly ({x['reach']:.2f}× the boss HP; a safe win needs {RETRY_REACH:g}×)")
+                        f"win narrowly ({x['reach']:.2f}× the boss HP; model threshold {RETRY_REACH:g}×)")
             m = t.get('mechanics') or {}
             race = (f"Simulated with this boss's attacks learned from {m.get('fights')} recorded fight(s): today you "
                     f"{outcome(sim['now'])}; with the plan you {outcome(sim['plan'])}.")
@@ -726,8 +735,9 @@ def purchase_suggestions(rows):
              if expected is not None and gold_run else '')
     levels = (f" {row['level_ups']} hero level-up(s) happened in the compared runs, which also speed runs up."
               if row['level_ups'] else '')
-    return [{'id': 'purchase-latest', 'area': 'runes', 'title': f'Measured effect of your last change: {what}',
-             'detail': f"{where}. " + ', '.join(p for p in parts if p) + '.' + check + levels + _stats_text(row),
+    return [{'id': 'purchase-latest', 'area': 'runes', 'title': f'Observed change after your last upgrade: {what}',
+             'detail': f"{where}. " + ', '.join(p for p in parts if p) + '.' + check + levels + _stats_text(row)
+                       + ' This before/after association does not isolate the effect of the upgrade.',
              'basis': 'observed', 'confidence': 'low' if row['level_ups'] else 'medium', 'priority': 3,
              'metrics': {'status': row['status'], 'gold_h': row['metrics'].get('gold_h'),
                          'level_ups': row['level_ups']}}]

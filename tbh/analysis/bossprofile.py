@@ -26,6 +26,33 @@ CONTACT_S = 4.5        # seconds from the fight start to the first hit when no f
 MAX_FIGHT_S = 120
 
 
+def chronological_checks(fights, target, k, front):
+    """Replay each held-out fight using only fights completed before its start."""
+    checks = []
+    for f in sorted(fights, key=lambda f: (f['utc'], f['id'])):
+        earlier = [g for g in fights if g['id'] != f['id'] and g.get('end_utc') and g['end_utc'] < f['utc']]
+        profile = fit_bursts(learn(earlier), target, earlier, k, front)
+        sim = simulate(target, profile, f['heroes'], k, front)
+        boss = f['combat'].get('boss') or {}
+        checks.append({'run_id': f['id'], 'utc': f['utc'], 'training_run_ids': [g['id'] for g in earlier],
+                       'predicted_won': sim['won'] if sim else None,
+                       'predicted_left': sim['boss_hp_left'] if sim else None,
+                       'won': f['won'], 'left': boss.get('hp_left_fraction'),
+                       'status': 'evaluated' if sim else 'insufficient_prior_evidence'})
+    return checks
+
+
+def validation_summary(checks):
+    evaluated = [c for c in checks if c['predicted_won'] is not None]
+    wrong = [c for c in evaluated if c['predicted_won'] != c['won']]
+    return {'evaluated': len(evaluated), 'correct': len(evaluated) - len(wrong),
+            'false_wins': sum(c['predicted_won'] and not c['won'] for c in wrong),
+            'false_losses': sum(not c['predicted_won'] and c['won'] for c in wrong),
+            'status': 'contradicted' if wrong else 'no_contradiction_observed' if evaluated else 'untested',
+            'note': 'Chronological historical replay with recorded stats; front position and unobserved mechanics '
+                    'remain assumptions. Agreement is not a guarantee for a new fight.'}
+
+
 def _died(fight):
     return {int(k): h['died_s'] for k, h in (fight['combat'].get('heroes') or {}).items() if h.get('died_s') is not None}
 
